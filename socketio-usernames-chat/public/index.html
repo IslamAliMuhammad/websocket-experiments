@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Socket.IO Chat with Usernames</title>
+  <style>
+    body { font-family: Arial; max-width: 600px; margin: auto; }
+    #messages { list-style: none; padding: 0; }
+    #messages li { padding: 5px 10px; border-bottom: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+  <h2>Socket.IO Chat with Usernames</h2>
+  
+  <div id="usernamePrompt">
+    <input id="usernameInput" placeholder="Enter your username">
+    <button onclick="setUsername()">Join Chat</button>
+  </div>
+
+  <ul id="messages"></ul>
+  
+  <form id="messageForm" style="display:none;">
+    <input id="messageInput" autocomplete="off" placeholder="Type a message">
+    <button>Send</button>
+  </form>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let username = '';
+
+    function setUsername() {
+      username = document.getElementById('usernameInput').value.trim();
+      if (username) {
+        socket.emit('setUsername', username);
+        document.getElementById('usernamePrompt').style.display = 'none';
+        document.getElementById('messageForm').style.display = 'block';
+      }
+    }
+
+    // Receive chat messages from the server
+    socket.on('chatMessage', (data) => {
+      addMessage(`${data.username}: ${data.msg}`);
+    });
+
+    // استقبال إشعار انضمام
+    socket.on('userJoined', (msg) => {
+      addMessage(`🔵 ${msg}`);
+    });
+
+    // Receive notification when a user leaves
+    socket.on('userLeft', (msg) => {
+      addMessage(`🔴 ${msg}`);
+    });
+
+    // Send a chat message when the form is submitted
+    document.getElementById('messageForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const msg = document.getElementById('messageInput').value;
+      if (msg) {
+        socket.emit('chatMessage', msg);
+        document.getElementById('messageInput').value = '';
+      }
+    });
+
+    function addMessage(text) {
+      const li = document.createElement('li');
+      li.textContent = text;
+      document.getElementById('messages').appendChild(li);
+    }
+  </script>
+</body>
+</html>
