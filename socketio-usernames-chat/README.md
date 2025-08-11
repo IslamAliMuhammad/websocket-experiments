@@ -15,10 +15,8 @@ npm install
 node server.js
 ```
 
-3. Open your browser:
-```bash
-http://localhost:3000
-```
+3. Open your browser: 
+[http://localhost:3000](http://localhost:3000)
 
 4. Open in multiple tabs to simulate multiple users.
 
