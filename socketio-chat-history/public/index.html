@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Socket.IO Chat with History</title>
+</head>
+<body>
+  <h2>Chat with History</h2>
+
+  <div id="joinForm">
+    <input id="username" placeholder="Enter username">
+    <input id="room" placeholder="Enter room name">
+    <button onclick="joinRoom()">Join Room</button>
+  </div>
+
+  <ul id="messages"></ul>
+
+  <form id="messageForm" style="display:none;">
+    <input id="messageInput" autocomplete="off" placeholder="Type a message">
+    <button>Send</button>
+  </form>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+
+    function joinRoom() {
+      const username = document.getElementById('username').value.trim();
+      const room = document.getElementById('room').value.trim();
+
+      if (username && room) {
+        socket.emit('joinRoom', { username, room });
+        document.getElementById('joinForm').style.display = 'none';
+        document.getElementById('messageForm').style.display = 'block';
+      }
+    }
+
+    socket.on('chatHistory', (history) => {
+      history.forEach(msgObj => {
+        addMessage(`${msgObj.username}: ${msgObj.msg}`);
+      });
+    });
+
+    socket.on('message', (msg) => {
+      addMessage(msg);
+    });
+
+    document.getElementById('messageForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const msg = document.getElementById('messageInput').value;
+      if (msg) {
+        socket.emit('chatMessage', msg);
+        document.getElementById('messageInput').value = '';
+      }
+    });
+
+    function addMessage(text) {
+      const li = document.createElement('li');
+      li.textContent = text;
+      document.getElementById('messages').appendChild(li);
+    }
+  </script>
+</body>
+</html>
