@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Socket.IO Notifications + JWT Demo</title>
+</head>
+<body>
+  <h2>Notifications Demo</h2>
+  <div>
+    <label>Username: <input id="username" /></label>
+    <button id="btnLogin">Get Token & Connect</button>
+  </div>
+
+  <div id="clientUI" style="display:none;">
+    <p>Connected as: <span id="who"></span></p>
+    <ul id="notifs"></ul>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    let socket;
+    let token;
+
+    document.getElementById('btnLogin').onclick = async () => {
+      const username = document.getElementById('username').value.trim();
+      if (!username) return alert('enter username');
+
+      // call /login to get token
+      const res = await fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username })
+      });
+      const data = await res.json();
+      token = data.token;
+
+      // connect socket with token in auth payload
+      socket = io({ auth: { token } });
+
+      socket.on('connect_error', (err) => {
+        console.error('connect_error', err.message);
+        alert('Socket connect error: ' + err.message);
+      });
+
+      socket.on('connect', () => {
+        document.getElementById('clientUI').style.display = 'block';
+        document.getElementById('who').textContent = username;
+      });
+
+      socket.on('notification', (payload) => {
+        addNotif(payload);
+      });
+
+      socket.on('presence', (p) => {
+        addNotif({ title: 'presence', body: `${p.username} is ${p.status}` });
+      });
+    };
+
+    function addNotif(n) {
+      const li = document.createElement('li');
+      li.textContent = `${n.title} — ${n.body || ''} (${n.time || ''})`;
+      document.getElementById('notifs').appendChild(li);
+    }
+  </script>
+</body>
+</html>
