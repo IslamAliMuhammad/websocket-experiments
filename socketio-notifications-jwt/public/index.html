@@ -2,10 +2,11 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Socket.IO Notifications + JWT Demo</title>
+  <title>Socket.IO Notifications + JWT + MongoDB</title>
 </head>
 <body>
-  <h2>Notifications Demo</h2>
+  <h2>Notifications Demo (MongoDB + Missed)</h2>
+
   <div>
     <label>Username: <input id="username" /></label>
     <button id="btnLogin">Get Token & Connect</button>
@@ -13,19 +14,22 @@
 
   <div id="clientUI" style="display:none;">
     <p>Connected as: <span id="who"></span></p>
+    <button id="btnGetMissed">Reload Missed</button>
+    <button id="btnMarkAll">Mark All Read (REST)</button>
     <ul id="notifs"></ul>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    let socket;
-    let token;
+    let socket, token, username;
 
-    document.getElementById('btnLogin').onclick = async () => {
-      const username = document.getElementById('username').value.trim();
+    const $ = (id) => document.getElementById(id);
+
+    $('btnLogin').onclick = async () => {
+      username = $('username').value.trim();
       if (!username) return alert('enter username');
 
-      // call /login to get token
+      // 1) get token
       const res = await fetch('/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -34,7 +38,7 @@
       const data = await res.json();
       token = data.token;
 
-      // connect socket with token in auth payload
+      // 2) connect socket with token
       socket = io({ auth: { token } });
 
       socket.on('connect_error', (err) => {
@@ -43,23 +47,59 @@
       });
 
       socket.on('connect', () => {
-        document.getElementById('clientUI').style.display = 'block';
-        document.getElementById('who').textContent = username;
+        $('clientUI').style.display = 'block';
+        $('who').textContent = username;
       });
 
-      socket.on('notification', (payload) => {
-        addNotif(payload);
+      // real-time single notification
+      socket.on('notification', (n) => addNotif(n, false));
+
+      // missed (batch)
+      socket.on('missed', (list) => {
+        list.forEach((n) => addNotif(n, true));
       });
 
-      socket.on('presence', (p) => {
-        addNotif({ title: 'presence', body: `${p.username} is ${p.status}` });
+      socket.on('markedRead', (ids) => {
+        // visually mark them
+        ids.forEach((id) => {
+          const li = document.querySelector(`li[data-id="${id}"]`);
+          if (li) li.style.opacity = 0.5;
+        });
       });
     };
 
-    function addNotif(n) {
+    $('btnGetMissed').onclick = () => {
+      socket.emit('getMissed');
+    };
+
+    $('btnMarkAll').onclick = async () => {
+      const res = await fetch('/notifications/mark-all-read', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (res.ok) {
+        // dim all
+        document.querySelectorAll('#notifs li').forEach(li => li.style.opacity = 0.5);
+      }
+    };
+
+    function addNotif(n, isMissed) {
       const li = document.createElement('li');
-      li.textContent = `${n.title} — ${n.body || ''} (${n.time || ''})`;
-      document.getElementById('notifs').appendChild(li);
+      li.dataset.id = n.id || '';
+      const when = n.createdAt ? new Date(n.createdAt).toLocaleString() : '';
+      const missedTag = isMissed ? '[MISSED] ' : '';
+      li.textContent = `${missedTag}${n.title} — ${n.body || ''} ${when ? '(' + when + ')' : ''}`;
+
+      // click to mark single as read (socket event)
+      li.onclick = () => {
+        if (n.id) socket.emit('markRead', [n.id]);
+      };
+
+      if (n.read) li.style.opacity = 0.5;
+      $('notifs').prepend(li);
     }
   </script>
 </body>
