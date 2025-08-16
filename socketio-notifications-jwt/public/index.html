@@ -2,14 +2,15 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Socket.IO Notifications + JWT + MongoDB</title>
+  <title>Socket.IO Notifications + JWT + MongoDB + Refresh</title>
 </head>
 <body>
-  <h2>Notifications Demo (MongoDB + Missed)</h2>
+  <h2>Notifications Demo (Refresh Tokens)</h2>
 
   <div>
     <label>Username: <input id="username" /></label>
     <button id="btnLogin">Get Token & Connect</button>
+    <button id="btnLogout">Logout</button>
   </div>
 
   <div id="clientUI" style="display:none;">
@@ -21,68 +22,141 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    let socket, token, username;
+    let socket, accessToken, username;
 
     const $ = (id) => document.getElementById(id);
 
-    $('btnLogin').onclick = async () => {
-      username = $('username').value.trim();
-      if (!username) return alert('enter username');
-
-      // 1) get token
-      const res = await fetch('/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username })
-      });
-      const data = await res.json();
-      token = data.token;
-
-      // 2) connect socket with token
-      socket = io({ auth: { token } });
-
-      socket.on('connect_error', (err) => {
-        console.error('connect_error', err.message);
-        alert('Socket connect error: ' + err.message);
+    async function api(path, options = {}, retryOn401 = true) {
+      const res = await fetch(path, {
+        ...options,
+        headers: {
+          ...(options.headers || {}),
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: 'Bearer ' + accessToken } : {})
+        },
+        credentials: 'include' // to include cookies (for refresh token)
       });
 
-      socket.on('connect', () => {
-        $('clientUI').style.display = 'block';
-        $('who').textContent = username;
+      if (res.status === 401 && retryOn401) {
+        // try to refresh the token
+        // if it fails, the user should login again
+        // if it succeeds, retry the original request once
+        // this is a simplified example, in production you might want to handle this differently
+        // e.g. show a login modal, redirect to login page, etc.
+        const ok = await tryRefresh(); 
+        if (ok) {
+          // retry once
+          return api(path, options, false); 
+        }
+      }
+      return res;
+    }
+
+    // Try to refresh the access token using the refresh token
+    // This will send a request to the server to get a new access token
+    // If successful, it will update the accessToken variable
+    // If it fails, it will return false
+    async function tryRefresh() {
+      const res = await fetch('/refresh', { method: 'POST', credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        accessToken = data.token;
+        // reconnect the socket with the new token
+        await reconnectSocket();
+        return true;
+      }
+      return false;
+    }
+
+
+    // Reconnect the socket with the current access token
+    // This will disconnect the current socket (if any) and create a new one
+    // It will also set up the necessary event listeners for notifications
+    // If the socket connection fails due to an invalid token, it will try to refresh the token
+    // If the refresh fails, it will alert the user to login again
+    // This is a simplified example, in production you might want to handle this differently
+    // e.g. show a login modal, redirect to login page, etc.
+    // In production, consider adding more error handling, logging, or additional features
+    // such as reconnect attempts, exponential backoff, etc.
+    async function reconnectSocket() {
+      if (socket) {
+        try { socket.disconnect(); } catch(e) {}
+      }
+      socket = io({ auth: { token: accessToken } });
+
+      socket.on('connect_error', async (err) => {
+        console.warn('socket connect_error:', err.message);
+        if (/invalid token/i.test(err.message)) {
+          const ok = await tryRefresh();
+          if (!ok) alert('Please login again');
+        }
       });
 
-      // real-time single notification
       socket.on('notification', (n) => addNotif(n, false));
-
-      // missed (batch)
-      socket.on('missed', (list) => {
-        list.forEach((n) => addNotif(n, true));
-      });
-
+      socket.on('missed', (list) => list.forEach((n) => addNotif(n, true)));
       socket.on('markedRead', (ids) => {
-        // visually mark them
         ids.forEach((id) => {
           const li = document.querySelector(`li[data-id="${id}"]`);
           if (li) li.style.opacity = 0.5;
         });
       });
+    }
+
+    $('btnLogin').onclick = async () => {
+      username = $('username').value.trim();
+      if (!username) return alert('enter username');
+
+      // Login to get the access token
+      // This will send a request to the server to get a new access token
+      // The server will validate the username and return a new access token
+      // If the login fails, it will alert the user
+      const res = await fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ username })
+      });
+
+      if (!res.ok) return alert('login failed');
+      const data = await res.json();
+      accessToken = data.token;
+
+      // Reconnect the socket with the new access token
+      // This will disconnect the current socket (if any) and create a new one
+      // It will also set up the necessary event listeners for notifications
+      // If the socket connection fails due to an invalid token, it will try to refresh the token
+      // If the refresh fails, it will alert the user to login again
+      await reconnectSocket();
+
+      $('clientUI').style.display = 'block';
+      $('who').textContent = username;
+    };
+
+    // Logout the user
+    // This will send a request to the server to revoke the current refresh token
+    // It will also clear the access token and disconnect the socket
+    // If the logout fails, it will alert the user
+    // This is important to prevent further access using the old token
+    $('btnLogout').onclick = async () => {
+      await fetch('/logout', { method: 'POST', credentials: 'include' });
+      accessToken = null;
+      if (socket) socket.disconnect();
+      $('clientUI').style.display = 'none';
+      $('notifs').innerHTML = '';
+      alert('Logged out');
     };
 
     $('btnGetMissed').onclick = () => {
+      if (!socket) return;
       socket.emit('getMissed');
     };
 
     $('btnMarkAll').onclick = async () => {
-      const res = await fetch('/notifications/mark-all-read', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + token,
-          'Content-Type': 'application/json'
-        }
-      });
+      const res = await api('/notifications/mark-all-read', { method: 'POST' });
       if (res.ok) {
-        // dim all
         document.querySelectorAll('#notifs li').forEach(li => li.style.opacity = 0.5);
+      } else if (res.status === 401) {
+        alert('Unauthorized. Please login again.');
       }
     };
 
@@ -93,9 +167,10 @@
       const missedTag = isMissed ? '[MISSED] ' : '';
       li.textContent = `${missedTag}${n.title} — ${n.body || ''} ${when ? '(' + when + ')' : ''}`;
 
-      // click to mark single as read (socket event)
-      li.onclick = () => {
-        if (n.id) socket.emit('markRead', [n.id]);
+      li.onclick = async () => {
+        if (!n.id) return;
+        if (!socket) return;
+        socket.emit('markRead', [n.id]);
       };
 
       if (n.read) li.style.opacity = 0.5;
