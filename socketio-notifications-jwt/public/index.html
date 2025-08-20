@@ -11,6 +11,7 @@
     <label>Username: <input id="username" /></label>
     <button id="btnLogin">Get Token & Connect</button>
     <button id="btnLogout">Logout</button>
+    <button id="btnEnablePush">Enable Push</button>
   </div>
 
   <div id="clientUI" style="display:none;">
@@ -160,6 +161,73 @@
       }
     };
 
+     $('btnEnablePush').onclick = async () => {
+      if (!accessToken) return alert('Login first');
+
+      // 1) request permission for notifications
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') {
+        return alert('Notifications permission denied');
+      }
+
+      // 2) register the service worker
+      const swReg = await navigator.serviceWorker.register('/sw.js');
+
+      // 3) get the public VAPID key from the server
+      // This key is used to encrypt the push messages sent by the server
+      const keyRes = await fetch('/push/public-key');
+      const { key } = await keyRes.json();
+
+      // 4) convert the Base64URL public key to Uint8Array
+      // This is required by the Push API to subscribe to push notifications
+      const appServerKey = urlBase64ToUint8Array(key);
+
+      // 5) subscribe to push notifications
+      // This will create a subscription object that contains the endpoint and keys
+      // The endpoint is the URL where the push messages will be sent
+      // The keys are used to encrypt the messages
+      // The userVisibleOnly option is set to true to indicate that the user should see notifications
+      const subscription = await swReg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: appServerKey
+      });
+
+      // 6) send the subscription to the server
+      // This will save the subscription in the database and associate it with the user
+      // The server will use this subscription to send push messages to the user
+      // If the subscription is already saved, it will update it
+      // If the subscription is new, it will create a new entry in the database
+      // The server will also send a confirmation message to the client
+      // If the request fails, it will alert the user
+      // This is important to ensure that the user can receive push notifications
+      const res = await api('/push/subscribe', {
+        method: 'POST',
+        body: JSON.stringify(subscription)
+      });
+
+      if (res.ok) {
+        alert('Push enabled!');
+      } else {
+        alert('Failed to enable push');
+      }
+    };
+
+    // helper: Base64URL → Uint8Array
+    function urlBase64ToUint8Array(base64String) {
+      const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+      const base64 = (base64String + padding)
+        .replace(/-/g, '+')
+        .replace(/_/g, '/');
+
+      const raw = atob(base64);
+      const output = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; ++i) {
+        output[i] = raw.charCodeAt(i);
+      }
+      return output;
+    }
+
+    
     function addNotif(n, isMissed) {
       const li = document.createElement('li');
       li.dataset.id = n.id || '';

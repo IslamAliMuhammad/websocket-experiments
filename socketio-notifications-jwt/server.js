@@ -6,6 +6,7 @@ const { Server } = require('socket.io');
 const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
+const webpush = require('web-push');
 
 const app = express();
 const server = http.createServer(app);
@@ -23,11 +24,43 @@ const {
   REFRESH_COOKIE_NAME = 'rt',
 } = process.env;
 
+// VAPID keys for Web Push Notifications
+// These keys are used to authenticate the push notifications sent to the browser
+// You can generate them using web-push library or use existing keys
+// To generate new keys, run `node gen-vapid.js` in the terminal
+// Make sure to replace these keys with your own in production
+// The public key is used by the browser to subscribe to push notifications
+// The private key is used by the server to sign the push notifications
+// The subject is the email address or URL of the owner of the VAPID keys
+// It is used to identify the sender of the push notifications
+// In production, make sure to use a valid email address or URL
+// This is important for compliance with the Web Push Protocol
+// and to ensure that the push notifications are delivered correctly
+const { VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT = 'mailto:admin@example.com' } = process.env;
+
+webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+
 // ---------- MongoDB ----------
 mongoose
   .connect(MONGO_URI, { dbName: 'socketio_notifs' })
   .then(() => console.log('✅ MongoDB connected'))
   .catch((e) => console.error('Mongo error:', e));
+
+  // --- Push Subscription model ---
+const pushSubSchema = new mongoose.Schema(
+  {
+    userId: { type: String, index: true, required: true },
+    endpoint: { type: String, index: true, required: true, unique: true },
+    keys: {
+      p256dh: String,
+      auth: String,
+    },
+    userAgent: String,
+    ip: String,
+  },
+  { timestamps: true }
+);
+const PushSubscription = mongoose.model('PushSubscription', pushSubSchema);
 
 // ---------- Models ----------
 const notificationSchema = new mongoose.Schema(
@@ -276,6 +309,84 @@ app.post('/notifications/mark-all-read', httpAuth, async (req, res) => {
     { $set: { read: true } }
   );
   res.json({ ok: true, matched: result.matchedCount || result.n, modified: result.modifiedCount || result.nModified });
+}); 
+
+// ---------- Push Notifications Endpoints ----------
+app.get('/push/public-key', (req, res) => {
+  res.json({ key: VAPID_PUBLIC_KEY });
+});
+
+// Subscribe to push notifications
+// This endpoint allows the client to subscribe to push notifications
+// It requires the subscription object from the client, which includes the endpoint and keys
+// The subscription will be saved in the database and used to send push notifications
+// The user must be authenticated using the Access Token
+// The subscription will be associated with the userId from the Access Token
+// This is important for real-time applications where users need to receive notifications
+// In production, consider adding more fields to the subscription schema
+// such as IP address, or additional metadata
+app.post('/push/subscribe', httpAuth, async (req, res) => {
+  const sub = req.body;
+  if (!sub || !sub.endpoint || !sub.keys) {
+    return res.status(400).json({ error: 'invalid subscription' });
+  }
+  await PushSubscription.updateOne(
+    { endpoint: sub.endpoint },
+    {
+      $set: {
+        userId: req.user.userId,
+        endpoint: sub.endpoint,
+        keys: sub.keys,
+        userAgent: req.headers['user-agent'],
+        ip: req.ip,
+      },
+    },
+    { upsert: true }
+  );
+  res.json({ ok: true });
+});
+
+// Delete a push subscription
+app.post('/push/unsubscribe', httpAuth, async (req, res) => {
+  const { endpoint } = req.body || {};
+  if (!endpoint) return res.status(400).json({ error: 'endpoint required' });
+  await PushSubscription.deleteOne({ endpoint, userId: req.user.userId });
+  res.json({ ok: true });
+});
+
+// Test push notification endpoint
+app.post('/push/test', httpAuth, async (req, res) => {
+  const { title = 'Test', body = 'Hello!', data } = req.body || {};
+  const subs = await PushSubscription.find({ userId: req.user.userId }).lean();
+
+  const payload = JSON.stringify({ title, body, data });
+  let sent = 0;
+
+  await Promise.all(
+    subs.map(async (s) => {
+      try {
+        await webpush.sendNotification(
+          {
+            endpoint: s.endpoint,
+            keys: s.keys,
+          },
+          payload
+        );
+        sent++;
+      } catch (e) {
+        // Invalid subscription or other error
+        // If the subscription is invalid (e.g., endpoint not reachable), delete it
+        if (e.statusCode === 404 || e.statusCode === 410) {
+          await PushSubscription.deleteOne({ endpoint: s.endpoint });
+        } else {
+
+          console.error('push error:', e.statusCode, e.body || e.message);
+        }
+      }
+    })
+  );
+
+  res.json({ ok: true, sent });
 });
 
 // ---------- Socket.IO authentication ----------
