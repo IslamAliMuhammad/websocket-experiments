@@ -1,118 +1,98 @@
-# 🔔 Realtime Notifications Demo (Socket.IO + JWT + MongoDB + Push + Scaling)
+# Socket.IO Notifications + JWT + Push + Scaling
 
-## 📌 Overview
-This project is a **demo application** showcasing how to build a realtime notification system using:
-- **Socket.IO** (WebSocket abstraction)
-- **JWT Authentication + Refresh Tokens**
-- **MongoDB** for persisting notifications & push subscriptions
-- **Web Push API** for sending push notifications (even when the browser is closed)
-- **Scaling with Redis Adapter** for multi-instance horizontal scaling
-
-The project is structured into progressive levels:
-- **Level 1:** WebSocket Basics
-- **Level 2:** Socket.IO + Usernames
-- **Level 3:** JWT Auth + Notifications + Refresh Tokens
-- **Level 4:** Push Notifications + Scaling (Redis + Docker Compose)
+## Overview
+This project demonstrates a progressive journey of learning **real-time communication** with WebSockets and Socket.IO.  
+It starts with basic chat, then evolves into full JWT authentication, missed notifications stored in MongoDB, Push Notifications (Web Push API), and finally scaling with Redis adapter across multiple instances using Docker Compose.
 
 ---
 
-## 🚀 Run Locally
+## Features
+- **JWT Authentication** (access + refresh tokens)
+- **Socket.IO integration** with secure auth
+- **Missed notifications** stored in MongoDB
+- **Web Push API** for browser notifications
+- **Redis adapter** for horizontal scaling across multiple Node.js instances
+- **Docker Compose setup** for MongoDB, Redis, and multi-instance scaling
 
-### 1) Install dependencies
+---
+
+## Setup (Local)
+
+1. Clone the repo and enter this folder:
+
+```bash
+git clone https://github.com/IslamAliMuhammad/websocket-experiments.git
+cd socketio-notifications-jwt
+```
+
+2. Install dependencies:
+
 ```bash
 npm install
 ```
 
-### 2) Run MongoDB + Redis locally (if not using Docker)
+3. Start MongoDB and Redis locally, or use Docker:
+
 ```bash
 docker run -d -p 27017:27017 mongo
 docker run -d -p 6379:6379 redis
 ```
 
-### 3) Start the server
+4. Run the server:
+
 ```bash
 node server.js
 ```
 
-### 4) Open the Client
-Open `index.html` in your browser.
+5. Open the client in your browser:
+
+```
+http://localhost:3000
+```
 
 ---
 
-## 🐳 Run with Docker Compose
+## Setup (Docker Compose)
+
+We included a `docker-compose.yml` to spin up everything (app + MongoDB + Redis).
+
+1. Build and start services:
 
 ```bash
 docker-compose up --build
 ```
 
-This will start:
-- `app1` + `app2` (Node.js servers)
-- `mongo`
-- `redis`
+2. Open your browser at:
 
-Accessible at:
-- http://localhost:3000
-- http://localhost:3001
+```
+http://localhost:3000
 
----
+http://localhost:3001
 
-## 🧩 Features
-
-- ✅ Authentication with JWT + Refresh Token flow
-- ✅ Realtime notifications (Socket.IO events)
-- ✅ Store missed notifications in MongoDB
-- ✅ Web Push Notifications (even when browser is closed)
-- ✅ Horizontal scaling with Redis Pub/Sub
+```
 
 ---
 
-## 📖 Explanation
+## Scaling with Redis
 
-### 🔐 JWT + Refresh
-- Login → server issues access token (short-lived) + refresh token (cookie).
-- Access token is used with Socket.IO + REST API.
-- On expiry → refresh endpoint issues a new token.
-
-### 🔔 Notifications
-- Notifications are delivered instantly via Socket.IO.
-- If user is offline → notification is stored in MongoDB as "missed".
-
-### 📲 Web Push
-- Browser subscribes using a VAPID public key.
-- Server stores the subscription in MongoDB.
-- Server → Push service → Browser displays Notification.
-
-### ⚖️ Scaling (Redis Adapter)
-- Multiple instances (app1, app2).
-- Redis Pub/Sub ensures all events are broadcast across instances.
+Thanks to the **Redis adapter**, multiple Socket.IO server instances can share state (rooms, events, messages).  
+In `docker-compose.yml`, we define `app1`, `app2`, both connected to the same Redis service.  
+This demonstrates how Socket.IO scales horizontally.
 
 ---
 
-## 🧪 Levels Recap
+## Learning Journey
 
-### Level 1 → Pure WebSocket
-- Basic client/server example.
+This repo corresponds to **Level 3 + Level 4** of the full learning path:
 
-### Level 2 → Socket.IO + Usernames
-- Socket.IO integration.
-- Broadcast join/leave events.
-
-### Level 3 → JWT + Notifications
-- Login, refresh tokens.
-- Realtime + missed notifications.
-
-### Level 4 → Push + Scaling
-- Push notifications using Web Push API.
-- Scaling with Redis + docker-compose.
+- ✅ JWT Authentication with access & refresh tokens
+- ✅ Missed notifications stored in MongoDB
+- ✅ Push Notifications via Service Workers (Web Push)
+- ✅ Scaling with Redis adapter
 
 ---
 
-## 📚 References
+## References
 - [Socket.IO Docs](https://socket.io/docs/v4/)
-- [Web Push Book](https://web-push-book.gauntface.com/)
-- [Redis Pub/Sub](https://redis.io/docs/interact/pubsub/)
-- [JWT Guide](https://jwt.io/introduction/)
-
----
-
-👨‍💻 *Demo Project for training purposes (Laravel dev → Realtime WS skills)*
+- [Web Push MDN](https://developer.mozilla.org/en-US/docs/Web/API/Push_API)
+- [Redis Adapter](https://socket.io/docs/v4/redis-adapter/)
