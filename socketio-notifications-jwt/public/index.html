@@ -85,6 +85,20 @@
       }
       socket = io({ auth: { token: accessToken } });
 
+      socket.on('user:joined', (data) => {
+        const li = document.createElement('li');
+        li.textContent = `👋 ${data.username} joined the chat`;
+        li.style.color = 'green';
+        $('notifs').prepend(li);
+      });
+
+      socket.on('user:left', (data) => {
+        const li = document.createElement('li');
+        li.textContent = `👋 ${data.username} left the chat`;
+        li.style.color = 'red';
+        $('notifs').prepend(li);
+      });
+
       socket.on('connect_error', async (err) => {
         console.warn('socket connect_error:', err.message);
         if (/invalid token/i.test(err.message)) {
@@ -244,6 +258,7 @@
       if (n.read) li.style.opacity = 0.5;
       $('notifs').prepend(li);
     }
+    
   </script>
 </body>
 </html>

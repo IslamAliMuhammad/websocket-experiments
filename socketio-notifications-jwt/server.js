@@ -7,10 +7,13 @@ const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
 const webpush = require('web-push');
+const { createAdapter } = require("@socket.io/redis-adapter");
+const { createClient } = require("redis");
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+setupSocketIO(io).catch(console.error);
 
 app.use(express.json());
 app.use(cookieParser());
@@ -19,7 +22,7 @@ app.use(express.static('public'));
 const {
   PORT = 3000,
   JWT_SECRET = 'secret',
-  MONGO_URI = 'mongodb://localhost:27017/socketio_notifs',
+  MONGO_URI = 'mongodb://mongo:27017/socketio_notifs',
   REFRESH_TTL_DAYS = '7',
   REFRESH_COOKIE_NAME = 'rt',
 } = process.env;
@@ -46,7 +49,7 @@ mongoose
   .then(() => console.log('✅ MongoDB connected'))
   .catch((e) => console.error('Mongo error:', e));
 
-  // --- Push Subscription model ---
+// --- Push Subscription model ---
 const pushSubSchema = new mongoose.Schema(
   {
     userId: { type: String, index: true, required: true },
@@ -75,11 +78,11 @@ const notificationSchema = new mongoose.Schema(
 );
 const Notification = mongoose.model('Notification', notificationSchema);
 
-// Refresh tokens (opaque, قابلة للإلغاء والروتيشن)
+// Refresh tokens 
 const refreshTokenSchema = new mongoose.Schema(
   {
     userId: { type: String, index: true, required: true },
-    token: { type: String, index: true, required: true }, // في الإنتاج: خزن hash بدل الـ token نفسه
+    token: { type: String, index: true, required: true }, 
     expiresAt: { type: Date, index: true, required: true },
     revokedAt: { type: Date },
     userAgent: String,
@@ -90,8 +93,19 @@ const refreshTokenSchema = new mongoose.Schema(
 const RefreshToken = mongoose.model('RefreshToken', refreshTokenSchema);
 
 // ---------- Helpers ----------
+
+async function setupSocketIO(io) {
+  const pubClient = createClient({ url: "redis://redis:6379" });
+  const subClient = pubClient.duplicate();
+
+  await pubClient.connect();
+  await subClient.connect();
+
+  io.adapter(createAdapter(pubClient, subClient));
+}
+
 function signAccess(payload) {
-  // Access token قصير العمر
+  // Access token is signed with JWT_SECRET and expires in 15 minutes
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '15m' });
 }
 
@@ -309,7 +323,7 @@ app.post('/notifications/mark-all-read', httpAuth, async (req, res) => {
     { $set: { read: true } }
   );
   res.json({ ok: true, matched: result.matchedCount || result.n, modified: result.modifiedCount || result.nModified });
-}); 
+});
 
 // ---------- Push Notifications Endpoints ----------
 app.get('/push/public-key', (req, res) => {
@@ -420,6 +434,21 @@ io.on('connection', async (socket) => {
   const { userId, username } = socket.user;
   console.log(`🔌 ${username} connected (${socket.id})`);
   socket.join(userId);
+
+  
+  socket.broadcast.emit("user:joined", {
+    username: username,
+    userId: userId,
+  });
+
+  socket.on("disconnect", () => {
+    socket.broadcast.emit("user:left", {
+      username: username,
+      userId: userId,
+    });
+    console.log(`${username} disconnected`);
+  });
+
 
   // Send missed notifications to the user
   // This will send the last 100 unread notifications to the user
